@@ -4,7 +4,7 @@ const Product = require("../models/Product");
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 const getAllProducts = async (req, res) => {
-  const { featured, company, name, numericFilters } = req.query;
+  const { featured, company, name, filters, sort, fields } = req.query;
   let queryObject = {};
   if (featured) {
     queryObject.featured = featured === "true" ? true : false;
@@ -12,11 +12,10 @@ const getAllProducts = async (req, res) => {
   if (company) {
     queryObject.company = company;
   }
-
   if (name) {
     queryObject.name = { $regex: name, $options: "i" };
   }
-  if (numericFilters) {
+  if (filters) {
     const options = ["price", "rating"];
     const operatorMap = {
       ">": "gt",
@@ -26,15 +25,47 @@ const getAllProducts = async (req, res) => {
       "<": "$lt",
     };
     const re = /\b(<|>|<=|=|>=)\b/;
-
-    let filters = numericFilters.replace(
-      re,
-      (match) => `-${operatorMap[match]}`
-    );
+    //filters=price>=30,rarting>3
+    let newFilters = filters.replace(re, (match) => `-${operatorMap[match]}-`);
+    //filters= prce-$gtr-30,ratinh-$gt-3
+    newFilters.split(",").forEach((item) => {
+      const [field, operator, value] = item.split("-");
+      //field = price
+      //operatir = $gte
+      //value = 30
+      if (options.includes(field)) {
+        queryObject[field] = {
+          [operator]: +value,
+        };
+      }
+    });
   }
-  let results = await Product.find(queryObject);
 
-  res.json({ status: 200, msg: "success", results: results });
+  let results = Product.find(queryObject);
+
+  if (sort) {
+    const sortList = sort.split(",").join(" ");
+    results = results.sort(sortList);
+  } else {
+    results = results.sort("CreatedAt");
+  }
+
+  if (fields) {
+    const fieldsList = fields.split(",").join(" ");
+    results = results.select(fieldsList);
+  }
+  const page = +req.query.page || 1;
+  const limit = +req.query.limit || 5;
+  const skip = +(page - 1) * limit;
+  results = results.skip(skip).limit(limit);
+
+  const products = await results;
+  res.json({
+    status: 200,
+    msg: "success",
+    results: products,
+    nbHits: products.length,
+  });
 };
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
